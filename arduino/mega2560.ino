@@ -10,6 +10,43 @@
 
 #include <Keypad.h>
 
+bool devMode = false;
+const String kDevLockedChar = "x";
+const String kDevLoadingChar = "*";
+const String kDevUnlockedChar = "Y";
+String devAuth = kDevLockedChar;
+
+const byte kCheckmarkIcon[8] = {
+  0b00000,
+  0b00001,
+  0b00001,
+  0b00010,
+  0b00010,
+  0b10100,
+  0b01000,
+  0b00000
+};
+const byte kLockedIcon[8] = {
+  0b00000,
+  0b01110,
+  0b10001,
+  0b10001,
+  0b11111,
+  0b11011,
+  0b11011,
+  0b11111
+};
+const byte kUnlockedIcon[8] = {
+  0b01110,
+  0b10001,
+  0b10001,
+  0b00001,
+  0b11111,
+  0b11011,
+  0b11011,
+  0b11111
+};
+
 // Initialize Timer
 String lastPong = "DISC";
 bool didReceivePong = false;
@@ -25,15 +62,18 @@ bool watch(void *) {
   if (didReceivePong) {
     didReceivePong = false;
     dropCount = 0;
-    return;
+    return false;
   }
   
   dropCount++;
-  if (dropCount < 2)
+  if (dropCount < 10)
     return true;
 
   Serial.println("Photon Dead! Resetting...");
 
+  dropCount = 0;
+
+  pinMode(55, OUTPUT);
   digitalWrite(55, LOW);
   delay(10);
   digitalWrite(55, HIGH);
@@ -64,22 +104,34 @@ bool waiting = false;
 
 // Initialize LCD
 LiquidCrystal lcd(62,63,64,65,66,67);
-String lcdStatus = "Scan/enter ID:";
+const String kLCDStatus = "Scan/enter ID:";
 
-void updateEntry(String entry) {
+void redrawLCD(String entry) {
   lcd.clear();
-  lcd.print(lcdStatus);
+  if (devMode) {
+    lcd.print("Enroll Tag/SID " + devAuth);
+    if (devAuth == kDevUnlockedChar) {
+      lcd.setCursor(15,0);
+      lcd.write((byte)2);
+    }
+    else if (devAuth == kDevLockedChar) {
+      lcd.setCursor(15,0);
+      lcd.write((byte)1);
+    }
+  }
+  else
+    lcd.print(kLCDStatus);
   lcd.setCursor(0,1);
   lcd.print(entry);
 }
 
 void setup() {
-  pinMode(55, OUTPUT);
-  digitalWrite(55, HIGH);
-  
   // put your setup code here, to run once:
   lcd.begin(16,2);
-  lcd.print(lcdStatus);
+  lcd.print(kLCDStatus);
+  lcd.createChar(0, kCheckmarkIcon);
+  lcd.createChar(1, kLockedIcon);
+  lcd.createChar(2, kUnlockedIcon);
 
   mfrc522.PCD_Init();
 
@@ -96,7 +148,6 @@ void loop() {
   // read from port 1, send to port 0:
   if (Serial1.available()) {
     String inStr = Serial1.readStringUntil('\n');
-    Serial.println("RECV: " + inStr);
     inStr.trim();
 
     String command = inStr;
@@ -108,12 +159,14 @@ void loop() {
             i = inStr.length();
         }
     }
+    
+    if (command != "PONG" || arg != "CLOUD")
+      Serial.println("RECV: " + inStr);
 
 //    Serial.println(command);
 
-    bool upd = false;
-
     if (command == "IN") {
+      devMode = false;
       lcd.clear();
       lcd.print("Welcome,");
       lcd.setCursor(0, 1);
@@ -121,8 +174,10 @@ void loop() {
 
       delay(2000);
       waiting = false;
-      upd = true;
+      entry = "";
+      redrawLCD("");
     } else if (command == "OUT") {
+      devMode = false;
       lcd.clear();
       lcd.print("Goodbye,");
       lcd.setCursor(0, 1);
@@ -130,17 +185,18 @@ void loop() {
 
       delay(2000);
       waiting = false;
-      upd = true;
+      entry = "";
+      redrawLCD("");
     } else if (command == "PONG") {
       didReceivePong = true;
       if (arg == "CLOUD") {
-          Serial.println("Photon Alive");
+          // Serial.println("Photon Alive");
           if(lastPong != arg) {
-            updateEntry(entry);
+            redrawLCD(entry);
             waiting = false;
           }
       } else {
-          Serial.println("Photon Connecting");
+          // Serial.println("Photon Connecting");
           if (!waiting || lastPong != arg) {
             lcd.clear();
             lcd.print("Connecting to");
@@ -154,6 +210,21 @@ void loop() {
       }
 
       lastPong = arg;
+    } else if (command == "ADMIN") {
+      if (devAuth == kDevLoadingChar) {
+        waiting = false;
+        devAuth = kDevUnlockedChar;
+        redrawLCD(entry);
+      }
+    } else if (command == "SUCCESS") {
+      lcd.clear();
+      lcd.print("Success!");
+      lcd.setCursor(0, 1);
+      lcd.print("[" + arg + "]");
+      delay(1000);
+      waiting = false;
+      entry = "";
+      redrawLCD(entry);
     } else if (command == "ERROR") {
       lcd.clear();
       lcd.print("Error:");
@@ -161,15 +232,11 @@ void loop() {
       lcd.print(arg);
 
       waiting = false;
-      upd = true;
       delay(4000);
-    } else {
-//      Serial.println(inStr);
-    }
-    
-    if (upd) {
       entry = "";
-      updateEntry("");
+      redrawLCD("");
+    } else {
+    //  Serial.println(inStr);
     }
   }
 // =================================================
@@ -182,24 +249,32 @@ void loop() {
   if (key){
     if (key == '*') {
       entry = "";
-      updateEntry(entry);
+      redrawLCD(entry);
     } else if (key == '#') {
       entry = entry.substring(0, entry.length() - 1);
-      updateEntry(entry);
+      redrawLCD(entry);
     } else if (key == 'A') {
       lcd.clear();
       lcd.print("Please wait...");
       Serial1.println("LOGSID " + entry);
       waiting = true;
       Serial.println(entry);
+    } else if (key == 'B') {
     } else if (key == 'C') {
       Serial1.println("test");
-      updateEntry(entry);
+      redrawLCD(entry);
+    } else if (key == 'D') {
+        if (devMode) {
+          devAuth = kDevLockedChar;
+        }
+
+        devMode = !devMode;
+        redrawLCD(entry);
     } else {
       entry += key;
       if (entry.length() >= 17)
         entry = entry.substring(1, 17);
-      updateEntry(entry);
+      redrawLCD(entry);
     }
   }
 
@@ -219,10 +294,29 @@ void loop() {
   content.toUpperCase();
   String uid = content.substring(1);
 
-  lcd.clear();
-  lcd.print("Please wait...");
+  if (devMode) {
+    lcd.setCursor(15,0);
 
-  waiting = true;
+    if (devAuth == kDevUnlockedChar) {
+      lcd.write((byte)2);
+      waiting = true;
+      Serial1.println("ADDUID " + entry + " " + uid);
+      lcd.clear();
+      lcd.print("Please wait...");
+    }
+    else if (devAuth == kDevLockedChar) {
+      lcd.write((byte)1);
+      devAuth = kDevLoadingChar;
+      lcd.setCursor(0,0);
+      lcd.print("Authorizing... ");
+      Serial1.println("PERMUID " + uid);
+    }
+  } else {
+    waiting = true;
 
-  Serial1.println("LOGUID " + uid);
+    lcd.clear();
+    lcd.print("Please wait...");
+
+    Serial1.println("LOGUID " + uid);
+  }
 }
