@@ -16,16 +16,6 @@ const String kDevLoadingChar = "*";
 const String kDevUnlockedChar = "Y";
 String devAuth = kDevLockedChar;
 
-const byte kCheckmarkIcon[8] = {
-  0b00000,
-  0b00001,
-  0b00001,
-  0b00010,
-  0b00010,
-  0b10100,
-  0b01000,
-  0b00000
-};
 const byte kLockedIcon[8] = {
   0b00000,
   0b01110,
@@ -112,11 +102,11 @@ void redrawLCD(String entry) {
     lcd.print("Enroll Tag/SID " + devAuth);
     if (devAuth == kDevUnlockedChar) {
       lcd.setCursor(15,0);
-      lcd.write((byte)2);
+      lcd.write((byte)1);
     }
     else if (devAuth == kDevLockedChar) {
       lcd.setCursor(15,0);
-      lcd.write((byte)1);
+      lcd.write((byte)0);
     }
   }
   else
@@ -129,9 +119,8 @@ void setup() {
   // put your setup code here, to run once:
   lcd.begin(16,2);
   lcd.print(kLCDStatus);
-  lcd.createChar(0, kCheckmarkIcon);
-  lcd.createChar(1, kLockedIcon);
-  lcd.createChar(2, kUnlockedIcon);
+  lcd.createChar(0, kLockedIcon);
+  lcd.createChar(1, kUnlockedIcon);
 
   mfrc522.PCD_Init();
 
@@ -298,14 +287,14 @@ void loop() {
     lcd.setCursor(15,0);
 
     if (devAuth == kDevUnlockedChar) {
-      lcd.write((byte)2);
+      lcd.write((byte)1);
       waiting = true;
       Serial1.println("ADDUID " + entry + " " + uid);
       lcd.clear();
       lcd.print("Please wait...");
     }
     else if (devAuth == kDevLockedChar) {
-      lcd.write((byte)1);
+      lcd.write((byte)0);
       devAuth = kDevLoadingChar;
       lcd.setCursor(0,0);
       lcd.print("Authorizing... ");
